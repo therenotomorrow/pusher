@@ -6,11 +6,15 @@ import (
 	"time"
 )
 
+// Observer defines the interface for monitoring worker execution.
+// Implementations can track statistics and log errors during load testing.
 type Observer interface {
 	SetStats(err error) error
 	LogError(err error, message string, args ...any)
 }
 
+// Worker represents a single worker that executes the target function
+// at a specified rate. It manages its own goroutine and job queue.
 type Worker struct {
 	observer Observer
 	target   Target
@@ -20,6 +24,8 @@ type Worker struct {
 	id       int
 }
 
+// Hire creates a new Worker instance with the given ID and target function.
+// The worker is initially created without an observer.
 func Hire(id int, target Target) *Worker {
 	return &Worker{
 		id:       id,
@@ -31,6 +37,8 @@ func Hire(id int, target Target) *Worker {
 	}
 }
 
+// WithObserver sets an observer for the worker and wraps the target function
+// to automatically call observer methods for statistics and error logging.
 func (w *Worker) WithObserver(observer Observer) *Worker {
 	target := w.target
 
@@ -46,24 +54,27 @@ func (w *Worker) WithObserver(observer Observer) *Worker {
 	return w
 }
 
+// Wait blocks until the worker has finished processing all jobs.
 func (w *Worker) Wait() {
 	<-w.done
 }
 
+// Do starts the worker with the specified RPS (requests per second).
+// It creates a single goroutine that processes jobs from the job queue
+// at the specified rate until the context is cancelled.
 func (w *Worker) Do(ctx context.Context, rps int) {
 	defer close(w.done)
 
-	w.wait.Add(rps)
+	// Create a single goroutine per worker, not per RPS
+	w.wait.Add(1)
 
-	for range rps {
-		go func() {
-			defer w.wait.Done()
+	go func() {
+		defer w.wait.Done()
 
-			for range w.jobs {
-				_ = w.target(ctx)
-			}
-		}()
-	}
+		for range w.jobs {
+			_ = w.target(ctx)
+		}
+	}()
 
 	ticker := time.NewTicker(time.Second / time.Duration(rps))
 	defer ticker.Stop()
