@@ -19,7 +19,6 @@ type config struct {
 	rps      int
 	workers  int
 	duration time.Duration
-	debug    bool
 }
 
 func (c config) Validate() error {
@@ -43,7 +42,6 @@ func defaults() config {
 		rps:      1,
 		workers:  1,
 		duration: time.Second,
-		debug:    false,
 	}
 }
 
@@ -68,11 +66,5 @@ func WithDuration(duration time.Duration) Option {
 func WithLogger(logger *slog.Logger) Option {
 	return func(p *Pusher) {
 		p.logger = logger
-	}
-}
-
-func WithDebug(debug bool) Option {
-	return func(p *Pusher) {
-		p.config.debug = debug
 	}
 }
