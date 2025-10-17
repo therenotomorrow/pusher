@@ -80,6 +80,15 @@ func Push(target Target, options ...Option) (*Pusher, error) {
 	return pusher, nil
 }
 
+func Force(target Target, options ...Option) *Pusher {
+	pusher, err := Push(target, options...)
+	if err != nil {
+		panic(err)
+	}
+
+	return pusher
+}
+
 func (p *Pusher) Run(ctx context.Context) {
 	p.startupLog()
 
