@@ -53,6 +53,15 @@ func (p *Pusher) LogError(err error, message string, args ...any) {
 	p.logger.Info(message, append([]any{"error", err}, args...)...)
 }
 
+func (p *Pusher) DebugTarget(target Target) Target {
+	return func(ctx context.Context) error {
+		p.logger.Info("push")
+		defer p.logger.Info("pull")
+
+		return target(ctx)
+	}
+}
+
 func Push(target Target, options ...Option) (*Pusher, error) {
 	if target == nil {
 		return nil, ErrMissingTarget
@@ -73,6 +82,10 @@ func Push(target Target, options ...Option) (*Pusher, error) {
 	err := pusher.config.Validate()
 	if err != nil {
 		return nil, err
+	}
+
+	if pusher.config.debug {
+		pusher.target = pusher.DebugTarget(target)
 	}
 
 	pusher.setupWorkers()
@@ -122,7 +135,7 @@ func (p *Pusher) setupWorkers() {
 			remainder--
 		}
 
-		p.workers = append(p.workers, worker{rps: rps, worker: Hire(id, p.target).WithObserver(p)})
+		p.workers = append(p.workers, worker{rps: rps, worker: Hire(id+1, p.target).WithObserver(p)})
 	}
 }
 
