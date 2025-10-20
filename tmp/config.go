@@ -1,4 +1,4 @@
-package pusher
+package tmp
 
 import (
 	"log/slog"
