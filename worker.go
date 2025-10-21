@@ -10,40 +10,38 @@ import (
 	"github.com/therenotomorrow/ex"
 )
 
-// Result represents the outcome of a single Target execution.
-type Result interface {
-	fmt.Stringer
-}
+type (
+	// Result represents the outcome of a single Target execution.
+	Result interface {
+		fmt.Stringer
+	}
 
-// Target is a function that performs the work to be tested.
-// It receives a context for cancellation and must return a Result and an error.
-type Target func(ctx context.Context) (Result, error)
+	// Target is a function that performs the work to be tested.
+	// It receives a context for cancellation and must return a Result and an error.
+	Target func(ctx context.Context) (Result, error)
 
-// Offer is a functional option for configuring a Worker.
-// This pattern allows for flexible and extensible Worker initialization.
-type Offer func(w *Worker)
+	// Gossiper defines the interface for listeners that process Gossip events.
+	// This allows plugging in various metric collectors, loggers, or reporters.
+	Gossiper interface {
+		// Listen runs in its own goroutine and processes events from the gossips channel.
+		Listen(ctx context.Context, worker *Worker, gossips <-chan *Gossip)
+		// Stop is called to gracefully shut down the listener and flush any buffered data.
+		Stop()
+	}
 
-// Gossiper defines the interface for listeners that process Gossip events.
-// This allows plugging in various metric collectors, loggers, or reporters.
-type Gossiper interface {
-	// Listen runs in its own goroutine and processes events from the gossips channel.
-	Listen(ctx context.Context, worker *Worker, gossips <-chan *Gossip)
-	// Stop is called to gracefully shut down the listener and flush any buffered data.
-	Stop()
-}
-
-// Worker is the core entity that generates load by repeatedly calling the Target
-// function at a specified rate (RPS) and concurrency limit.
-type Worker struct {
-	target Target
-	// wlb (work-life balance) is a channel used as a semaphore to limit the
-	// number of concurrent Target calls.
-	wlb    chan struct{}
-	ident  string
-	config config
-	wait   sync.WaitGroup
-	busy   atomic.Bool
-}
+	// Worker is the core entity that generates load by repeatedly calling the Target
+	// function at a specified rate (RPS) and concurrency limit.
+	Worker struct {
+		target Target
+		// wlb (work-life balance) is a channel used as a semaphore to limit the
+		// number of concurrent Target calls.
+		wlb    chan struct{}
+		ident  string
+		config config
+		wait   sync.WaitGroup
+		busy   atomic.Bool
+	}
+)
 
 // Work starts the load generation loop. It's a blocking method that runs until
 // the provided context is canceled. It generates requests at the specified RPS,

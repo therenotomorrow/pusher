@@ -8,10 +8,16 @@ const (
 	defaultOvertime = 1_000_000
 )
 
-type config struct {
-	listeners []Gossiper
-	overtime  int
-}
+type (
+	config struct {
+		listeners []Gossiper
+		overtime  int
+	}
+
+	// Offer is a functional option for configuring a Worker.
+	// This pattern allows for flexible and extensible Worker initialization.
+	Offer func(w *Worker)
+)
 
 // WithGossips configures a Worker with a set of event listeners.
 func WithGossips(listeners ...Gossiper) Offer {
