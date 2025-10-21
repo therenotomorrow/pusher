@@ -2,10 +2,12 @@ package examples
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
-	"math/rand"
+	"math/big"
 	"strconv"
+	"time"
 
 	"github.com/therenotomorrow/pusher"
 )
@@ -49,11 +51,18 @@ func (r Struct) String() string {
 	return fmt.Sprintf("Somebody %q at age %d", r.Name, r.Age)
 }
 
-func Random(_ context.Context) (pusher.Result, error) {
-	flip := rand.Uint32() % 100
+var ErrOops = errors.New("oops")
+
+func RandomTime(_ context.Context) (pusher.Result, error) {
+	rnd, _ := rand.Int(rand.Reader, big.NewInt(100))
+	flip := rnd.Uint64()
+
+	if flip < 25 {
+		time.Sleep(time.Second)
+	}
 
 	if flip < 50 {
-		return nil, errors.New("oops")
+		return nil, ErrOops
 	}
 
 	return Struct{Name: "lumen", Age: 42}, nil
