@@ -4,10 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
+	"io"
 	"math/rand/v2"
-	"os"
-	"reflect"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -30,30 +28,47 @@ type Target func(ctx context.Context) (Result, error)
 
 type Offer func(w *Worker)
 
-type Step string
+type When int
 
 const (
-	StepBefore Step = "before"
-	StepAfter  Step = "after"
+	Planned When = iota
+	BeforeTarget
+	AfterTarget
 )
 
 type Gossip struct {
 	Result Result
 	Error  error
-	Step   Step
+	When   When
 }
 
-func (g *Gossip) Before() bool {
-	return g.Step == StepBefore
+func (g *Gossip) String() string {
+	if g == nil {
+		return "<nil>"
+	}
+
+	if g.Result == nil {
+		return "<empty>"
+	}
+
+	return g.Result.String()
 }
 
-func (g *Gossip) After() bool {
-	return g.Step == StepAfter
+func (g *Gossip) Planned() bool {
+	return g.When == Planned
+}
+
+func (g *Gossip) BeforeTarget() bool {
+	return g.When < AfterTarget
+}
+
+func (g *Gossip) AfterTarget() bool {
+	return g.When == AfterTarget
 }
 
 type Gossiper interface {
 	Listen(ctx context.Context, id string, gossips <-chan *Gossip)
-	Finish(ctx context.Context, id string)
+	io.Closer
 }
 
 type config struct {
@@ -74,14 +89,12 @@ func WithOvertime() Offer {
 }
 
 type Worker struct {
-	id      string
-	target  Target
-	config  config
+	id     string
+	target Target
+	config config
 	// internals
-	wlb     chan struct{} // work-life balance
-	wait    sync.WaitGroup
-	running atomic.Bool
-	runWg   sync.WaitGroup
+	wlb  chan struct{} // work-life balance
+	busy atomic.Bool
 }
 
 func Hire(id string, target Target, offers ...Offer) (*Worker, error) {
@@ -97,7 +110,7 @@ func Hire(id string, target Target, offers ...Offer) (*Worker, error) {
 			listeners: make([]Gossiper, 0),
 		},
 		wlb:  make(chan struct{}), // will be ignored when Worker.Do calls
-		wait: sync.WaitGroup{},
+		busy: atomic.Bool{},
 	}
 
 	for _, offer := range offers {
@@ -108,20 +121,26 @@ func Hire(id string, target Target, offers ...Offer) (*Worker, error) {
 }
 
 func (w *Worker) Work(ctx context.Context, rps int) error {
-	if !w.running.CompareAndSwap(false, true) {
-		return ErrWorkerIsBusy
+	if !w.busy.CompareAndSwap(false, true) {
+		return ErrWorkerIsBusy.Reason("try again later")
 	}
 
 	if rps < 1 {
-		w.running.Store(false)
-		return ErrInvalidRPS
+		w.busy.Store(false)
+		return ErrInvalidRPS.Reason("rps must be positive")
 	}
 
-	w.runWg.Add(1)
+	tick := time.Second / time.Duration(rps)
+
+	if tick < time.Nanosecond {
+		return ErrInvalidRPS.Reason("rps too large, resulting tick < 1ns")
+	}
 
 	if !w.config.overtime {
 		w.wlb = make(chan struct{}, rps)
 	}
+
+	wait := sync.WaitGroup{}
 
 	tracker := make([]chan *Gossip, 0)
 	for _, gossiper := range w.config.listeners {
@@ -130,73 +149,73 @@ func (w *Worker) Work(ctx context.Context, rps int) error {
 		go gossiper.Listen(ctx, w.id, tracker[len(tracker)-1])
 	}
 
-	go func() {
-		defer func() {
-			w.wait.Wait()
+	defer func() {
+		wait.Wait()
 
-			for id := range tracker {
-				close(tracker[id])
-				w.config.listeners[id].Finish(ctx, w.id)
+		if !w.config.overtime {
+			close(w.wlb)
+		}
+
+		for id, track := range tracker {
+			close(track)
+			_ = w.config.listeners[id].Close()
+		}
+
+		w.busy.Store(false)
+	}()
+
+	timeless := time.NewTicker(tick)
+	defer timeless.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			wait.Wait()
+			return nil
+
+		case <-timeless.C:
+			for _, track := range tracker {
+				select {
+				case track <- &Gossip{When: Planned, Result: nil, Error: nil}:
+				default:
+				}
 			}
 
 			if !w.config.overtime {
-				close(w.wlb)
+				select {
+				case w.wlb <- struct{}{}:
+				default:
+					continue
+				}
 			}
 
-			w.running.Store(false)
-			w.runWg.Done()
-		}()
-
-		timeless := time.NewTicker(time.Second / time.Duration(rps))
-		defer timeless.Stop()
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-
-			case <-timeless.C:
-				for _, track := range tracker {
-					select {
-					case track <- &Gossip{Step: StepBefore, Result: nil, Error: nil}:
-					default:
-					}
-				}
-
-				if !w.config.overtime {
-					select {
-					case w.wlb <- struct{}{}:
-					default:
-						continue
-					}
-				}
-
-				w.wait.Add(1)
-				go func() {
-					defer w.wait.Done()
-					defer func() {
-						if !w.config.overtime {
-							<-w.wlb
-						}
-					}()
-
-					res, err := w.target(ctx)
-
-					for _, track := range tracker {
-						select {
-						case track <- &Gossip{Step: StepAfter, Result: res, Error: err}:
-						default:
-						}
+			wait.Add(1)
+			go func() {
+				defer wait.Done()
+				defer func() {
+					if !w.config.overtime {
+						<-w.wlb
 					}
 				}()
-			}
-		}
-	}()
 
-	return nil
-}
-func (w *Worker) Wait() {
-	w.runWg.Wait()
+				for _, track := range tracker {
+					select {
+					case track <- &Gossip{When: BeforeTarget, Result: nil, Error: nil}:
+					default:
+					}
+				}
+
+				res, err := w.target(ctx)
+
+				for _, track := range tracker {
+					select {
+					case track <- &Gossip{When: AfterTarget, Result: res, Error: err}:
+					default:
+					}
+				}
+			}()
+		}
+	}
 }
 
 func Work(target Target, rps int, duration time.Duration, offers ...Offer) error {
@@ -208,13 +227,24 @@ func Work(target Target, rps int, duration time.Duration, offers ...Offer) error
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
 
-	if err := w.Work(ctx, rps); err != nil {
-		return err
+	return w.Work(ctx, rps)
+}
+
+func Farm(workers []*Worker, rps int, duration time.Duration) {
+	ctx, cancel := context.WithTimeout(context.Background(), duration)
+	defer cancel()
+
+	var wait sync.WaitGroup
+
+	for _, worker := range workers {
+		wait.Go(func() {
+			_ = worker.Work(ctx, rps)
+		})
 	}
 
-	w.Wait()
+	wait.Wait()
 
-	return nil
+	return
 }
 
 func TestMe(_ context.Context) (int, error) {
@@ -223,7 +253,7 @@ func TestMe(_ context.Context) (int, error) {
 	switch {
 	case val < 50:
 		//time.Sleep(3 * time.Second)
-		time.Sleep(time.Second / 2)
+		//time.Sleep(time.Second / 2)
 
 		return 1, nil
 	case val < 75:
@@ -239,141 +269,18 @@ func (r IntResult) String() string {
 	return strconv.Itoa(int(r))
 }
 
-type Notebook struct {
-	log *slog.Logger
-}
-
-func (n *Notebook) Listen(_ context.Context, id string, gossips <-chan *Gossip) {
-	for gossip := range gossips {
-		if gossip.Before() {
-			continue
-		}
-
-		var result string
-		if gossip.Result != nil {
-			// Use reflection to safely handle potentially nil pointers inside the interface
-			v := reflect.ValueOf(gossip.Result)
-			if v.Kind() == reflect.Ptr && v.IsNil() {
-				result = "<nil>"
-			} else {
-				result = gossip.Result.String()
-			}
-		}
-
-		if gossip.Error != nil {
-			n.log.Error("failure", "worker", id, "result", result, "error", gossip.Error)
-		} else {
-			n.log.Info("success", "worker", id, "result", result)
-		}
-	}
-}
-
-func (n *Notebook) Finish(_ context.Context, _ string) {}
-
-const maxBucketSize = 600 // 10 minutes of per-second data
-
-type Tracker struct {
-	receive atomic.Int64
-	planned atomic.Int64
-	success atomic.Int64
-	failure atomic.Int64
-	buckets map[string][]int64
-	perSec  atomic.Int64
-	mutex   sync.Mutex
-	wait    sync.WaitGroup
-}
-
-func (t *Tracker) Listen(ctx context.Context, id string, gossips <-chan *Gossip) {
-	t.wait.Add(1)
-	defer t.wait.Done()
-
-	t.mutex.Lock()
-	if _, ok := t.buckets[id]; !ok {
-		t.buckets[id] = make([]int64, 0)
-	}
-	t.mutex.Unlock()
-
-	t.wait.Add(1)
-	go func() {
-		defer t.wait.Done()
-		ticker := time.NewTicker(time.Second)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ticker.C:
-				t.mutex.Lock()
-				t.buckets[id] = append(t.buckets[id], t.perSec.Swap(0))
-				if len(t.buckets[id]) > maxBucketSize {
-					t.buckets[id] = t.buckets[id][1:]
-				}
-				t.mutex.Unlock()
-			case <-ctx.Done():
-				if perSec := t.perSec.Load(); perSec > 0 {
-					t.mutex.Lock()
-					t.buckets[id] = append(t.buckets[id], perSec)
-					t.mutex.Unlock()
-				}
-				return
-			}
-		}
-	}()
-
-	for gossip := range gossips {
-		if gossip.Before() {
-			t.planned.Add(1)
-			continue
-		}
-
-		t.receive.Add(1)
-		t.perSec.Add(1)
-
-		if gossip.Error != nil {
-			t.failure.Add(1)
-		} else {
-			t.success.Add(1)
-		}
-	}
-}
-
-func (t *Tracker) Finish(_ context.Context, _ string) {
-	t.wait.Wait()
-}
-
 func Main() {
 	target := func(ctx context.Context) (Result, error) {
 		res, err := TestMe(ctx)
 
 		return IntResult(res), err
 	}
-	notes := &Notebook{
-		log: slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-			AddSource:   false,
-			Level:       slog.LevelInfo,
-			ReplaceAttr: nil,
-		})),
-	}
-	track := &Tracker{
-		receive: atomic.Int64{},
-		planned: atomic.Int64{},
-		success: atomic.Int64{},
-		failure: atomic.Int64{},
-		perSec:  atomic.Int64{},
-		buckets: make(map[string][]int64),
-		mutex:   sync.Mutex{},
-		wait:    sync.WaitGroup{},
-	}
 
 	start := time.Now()
 
-		if err := Work(target, 20, 2*time.Second,
-		WithGossips(notes, track),
-		WithOvertime(),
-	); err != nil {
-		notes.log.Error("work failed", "error", err)
+	if err := Work(target, 20, 2*time.Second, WithOvertime()); err != nil {
 		return
 	}
 
 	fmt.Println("took", time.Since(start))
-	fmt.Printf("%+v", track)
 }
