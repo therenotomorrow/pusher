@@ -17,10 +17,19 @@ linters:
           list-mode: strict
           files:
             - '$all'
+            - '!$test'
           allow:
             - '$gostd'
             - 'golang.org/x/sync/errgroup'
             - 'github.com/therenotomorrow/ex'
+        tests:
+          list-mode: strict
+          files:
+            - '$test'
+          allow:
+            - '$gostd'
+            - 'github.com/stretchr/testify'
+            - 'github.com/therenotomorrow/pusher'
   exclusions:
     rules:
       # simple rules for examples

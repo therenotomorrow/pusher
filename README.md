@@ -101,7 +101,7 @@ cd "$PROJECT_ROOT"
 go mod tidy
 
 # check code integrity
-just code # see other recipes by calling just without arguments
+just code test # see other recipes by calling `just`
 
 # setup safe development (optional)
 git config --local core.hooksPath .githooks
@@ -116,6 +116,16 @@ pusher/
 ├── gossip.go   # Event system and telemetry
 ├── pusher.go   # Main API and high-level functions
 └── worker.go   # Worker implementation and execution logic
+```
+
+### Testing
+
+```shell
+# run quick checks
+just test smoke # or just test
+
+# run with coverage
+just test cover
 ```
 
 ## License

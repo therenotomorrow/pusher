@@ -25,6 +25,7 @@ type (
 	Gossiper interface {
 		// Listen runs in its own goroutine and processes events from the gossips channel.
 		Listen(ctx context.Context, worker *Worker, gossips <-chan *Gossip)
+
 		// Stop is called to gracefully shut down the listener and flush any buffered data.
 		Stop()
 	}
@@ -90,6 +91,14 @@ func (w *Worker) Work(ctx context.Context, rps int) error {
 	}
 }
 
+// Unsafe returns internal state of Worker, be careful with usage.
+func (w *Worker) Unsafe() map[string]any {
+	return map[string]any{
+		"listeners": w.config.listeners,
+		"overtime":  w.config.overtime,
+	}
+}
+
 func (w *Worker) String() string {
 	return w.ident
 }
@@ -104,12 +113,20 @@ func (w *Worker) isReady(rps int) (time.Duration, error) {
 	if rps < 1 {
 		w.busy.Store(false)
 
-		return 0, ErrInvalidRPS.Reason("rps must be positive")
+		return 0, ErrInvalidRPS.Reason("rps must be positive value")
+	}
+
+	if w.config.overtime < 1 {
+		w.busy.Store(false)
+
+		return 0, ErrInvalidOvertime.Reason("overtime must be positive value")
 	}
 
 	tick := time.Second / time.Duration(rps)
 
 	if tick < time.Nanosecond {
+		w.busy.Store(false)
+
 		return 0, ErrInvalidRPS.Reason("rps too large, resulting tick < 1ns")
 	}
 

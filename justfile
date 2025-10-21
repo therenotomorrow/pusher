@@ -41,8 +41,24 @@ align:
     @if test ! -e {{ FIELDALIGNMENT }}; then just install-fieldaligment; fi
     {{ FIELDALIGNMENT }} --fix ./...
 
-# ---- default
+# ---- testing
+
+[private]
+smoke:
+    go test ./...
+
+[private]
+cover:
+    go test -count 1 -parallel 4 -race -coverprofile=coverage.out
+    go tool cover -func coverage.out
+
+# ---- shortcuts
 
 [doc('Run all code quality tools: struct alignment and static analysis')]
 [group('code')]
 code: align lint
+
+[doc('Run tests by type: `smoke` for quick checks, `cover` for detailed analysis')]
+[group('test')]
+test type='smoke':
+    just {{ type }}
