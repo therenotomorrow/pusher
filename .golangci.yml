@@ -5,15 +5,22 @@ linters:
   disable:
     # deprecated: by golangci-lint
     - wsl
-    # temp: skip for now
-    - revive
-    - depguard
   settings:
     gocritic:
       enable-all: true
     wrapcheck:
       ignore-package-globs:
         - github.com/therenotomorrow/ex
+    depguard:
+      rules:
+        main:
+          list-mode: strict
+          files:
+            - '$all'
+          allow:
+            - '$gostd'
+            - 'golang.org/x/sync/errgroup'
+            - 'github.com/therenotomorrow/ex'
 
 formatters:
   enable:

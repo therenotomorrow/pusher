@@ -3,12 +3,12 @@ package pusher
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/therenotomorrow/ex"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -90,6 +90,7 @@ type Worker struct {
 	wlb    chan struct{}
 	ident  string
 	config config
+	wait   sync.WaitGroup
 	busy   atomic.Bool
 }
 
@@ -111,6 +112,7 @@ func Hire(ident string, target Target, offers ...Offer) (*Worker, error) {
 			listeners: make([]Gossiper, 0),
 		},
 		wlb:  nil, // will be ignored when Worker.Do calls
+		wait: sync.WaitGroup{},
 		busy: atomic.Bool{},
 	}
 
@@ -124,43 +126,17 @@ func Hire(ident string, target Target, offers ...Offer) (*Worker, error) {
 }
 
 func (w *Worker) Work(ctx context.Context, rps int) error {
-	if !w.busy.CompareAndSwap(false, true) {
-		return ErrWorkerIsBusy.Reason("try again later")
+	tick, err := w.isReady(rps)
+	if err != nil {
+		return err
 	}
 
-	if rps < 1 {
-		w.busy.Store(false)
+	tracks := w.runListeners(ctx, rps)
 
-		return ErrInvalidRPS.Reason("rps must be positive")
-	}
-
-	tick := time.Second / time.Duration(rps)
-
-	if tick < time.Nanosecond {
-		return ErrInvalidRPS.Reason("rps too large, resulting tick < 1ns")
-	}
-
-	wait := sync.WaitGroup{}
-	tracker := make([]chan *Gossip, 0)
-
-	for _, gossiper := range w.config.listeners {
-		tracker = append(tracker, make(chan *Gossip, double*rps))
-
-		go gossiper.Listen(ctx, w.ident, tracker[len(tracker)-1])
-	}
-
-	defer func() {
-		wait.Wait()
-
-		for id, track := range tracker {
-			close(track)
-			w.config.listeners[id].Stop()
-		}
-
-		w.busy.Store(false)
-	}()
+	defer w.complete(tracks)
 
 	timeless := time.NewTicker(tick)
+
 	defer timeless.Stop()
 
 	for {
@@ -172,34 +148,79 @@ func (w *Worker) Work(ctx context.Context, rps int) error {
 			select {
 			case w.wlb <- struct{}{}:
 			case <-ctx.Done():
-				continue
+				return ex.Cast(ctx.Err())
 			default:
-				for _, track := range tracker {
-					select {
-					case track <- &Gossip{When: Cancelled, Result: nil, Error: nil}:
-					default:
-					}
-				}
+				w.whisp(tracks, &Gossip{When: Cancelled, Result: nil, Error: nil})
 
 				continue // move to the next tick
 			}
 
-			wait.Go(func() {
-				defer func() {
-					<-w.wlb
-				}()
+			w.wait.Go(func() {
+				defer func() { <-w.wlb }()
 
-				for _, track := range tracker {
-					track <- &Gossip{When: BeforeTarget, Result: nil, Error: nil}
-				}
-
+				w.shout(tracks, &Gossip{When: BeforeTarget, Result: nil, Error: nil})
 				res, err := w.target(ctx)
-
-				for _, track := range tracker {
-					track <- &Gossip{When: AfterTarget, Result: res, Error: err}
-				}
+				w.shout(tracks, &Gossip{When: AfterTarget, Result: res, Error: err})
 			})
 		}
+	}
+}
+
+func (w *Worker) isReady(rps int) (time.Duration, error) {
+	if !w.busy.CompareAndSwap(false, true) {
+		return 0, ErrWorkerIsBusy.Reason("try again later")
+	}
+
+	if rps < 1 {
+		w.busy.Store(false)
+
+		return 0, ErrInvalidRPS.Reason("rps must be positive")
+	}
+
+	tick := time.Second / time.Duration(rps)
+
+	if tick < time.Nanosecond {
+		return 0, ErrInvalidRPS.Reason("rps too large, resulting tick < 1ns")
+	}
+
+	return tick, nil
+}
+
+func (w *Worker) runListeners(ctx context.Context, rps int) []chan *Gossip {
+	tracks := make([]chan *Gossip, 0)
+
+	for _, gossiper := range w.config.listeners {
+		tracks = append(tracks, make(chan *Gossip, double*rps))
+
+		go gossiper.Listen(ctx, w.ident, tracks[len(tracks)-1])
+	}
+
+	return tracks
+}
+
+func (w *Worker) complete(tracks []chan *Gossip) {
+	w.wait.Wait()
+
+	for id, track := range tracks {
+		close(track)
+		w.config.listeners[id].Stop()
+	}
+
+	w.busy.Store(false)
+}
+
+func (w *Worker) whisp(tracks []chan *Gossip, gossip *Gossip) {
+	for _, track := range tracks {
+		select {
+		case track <- gossip:
+		default:
+		}
+	}
+}
+
+func (w *Worker) shout(tracks []chan *Gossip, gossip *Gossip) {
+	for _, track := range tracks {
+		track <- gossip
 	}
 }
 
@@ -215,41 +236,31 @@ func Work(target Target, rps int, duration time.Duration, offers ...Offer) error
 	return worker.Work(ctx, rps)
 }
 
-func Farm(workers []*Worker, rps int, duration time.Duration) {
+func Farm(workers []*Worker, rps int, duration time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
 
-	var wait sync.WaitGroup
+	group, gtx := errgroup.WithContext(ctx)
 
 	for _, worker := range workers {
-		wait.Go(func() {
-			_ = worker.Work(ctx, rps) // we ignore errors from workers
+		group.Go(func() error {
+			return worker.Work(gtx, rps)
 		})
 	}
 
-	wait.Wait()
+	return ex.Cast(group.Wait())
 }
 
-func TestMe(_ context.Context) (int, error) {
-	return 0, nil
-}
+func Force(target Target, rps int, duration time.Duration, amount int, offers ...Offer) error {
+	workers := make([]*Worker, amount)
+	for ident := range workers {
+		worker, err := Hire(fmt.Sprintf("force #%d", ident), target, offers...)
+		if err != nil {
+			return err
+		}
 
-type IntResult int
-
-func (r IntResult) String() string {
-	return strconv.Itoa(int(r))
-}
-
-func Main() error {
-	rps := 20
-	dur := time.Second
-	lim := 100
-
-	target := func(ctx context.Context) (Result, error) {
-		res, err := TestMe(ctx)
-
-		return IntResult(res), err
+		workers[ident] = worker
 	}
 
-	return Work(target, rps, dur, WithOvertime(lim))
+	return Farm(workers, rps, duration)
 }
