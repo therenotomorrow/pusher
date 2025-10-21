@@ -11,9 +11,9 @@ linters:
   settings:
     gocritic:
       enable-all: true
-    varnamelen:
-      ignore-names:
-        - id
+    wrapcheck:
+      ignore-package-globs:
+        - github.com/therenotomorrow/ex
 
 formatters:
   enable:

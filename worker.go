@@ -2,10 +2,7 @@ package pusher
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
-	"math/rand/v2"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -31,9 +28,9 @@ type Offer func(w *Worker)
 type When int
 
 const (
-	Planned When = iota
-	BeforeTarget
+	BeforeTarget = iota
 	AfterTarget
+	Cancelled
 )
 
 type Gossip struct {
@@ -54,12 +51,12 @@ func (g *Gossip) String() string {
 	return g.Result.String()
 }
 
-func (g *Gossip) Planned() bool {
-	return g.When == Planned
+func (g *Gossip) Cancelled() bool {
+	return g.When == Cancelled
 }
 
 func (g *Gossip) BeforeTarget() bool {
-	return g.When < AfterTarget
+	return g.When == BeforeTarget
 }
 
 func (g *Gossip) AfterTarget() bool {
@@ -68,12 +65,12 @@ func (g *Gossip) AfterTarget() bool {
 
 type Gossiper interface {
 	Listen(ctx context.Context, id string, gossips <-chan *Gossip)
-	io.Closer
+	Stop()
 }
 
 type config struct {
-	overtime  bool
 	listeners []Gossiper
+	overtime  int
 }
 
 func WithGossips(listeners ...Gossiper) Offer {
@@ -82,40 +79,46 @@ func WithGossips(listeners ...Gossiper) Offer {
 	}
 }
 
-func WithOvertime() Offer {
+func WithOvertime(limit int) Offer {
 	return func(w *Worker) {
-		w.config.overtime = true
+		w.config.overtime = limit
 	}
 }
 
 type Worker struct {
-	id     string
 	target Target
+	wlb    chan struct{}
+	ident  string
 	config config
-	// internals
-	wlb  chan struct{} // work-life balance
-	busy atomic.Bool
+	busy   atomic.Bool
 }
 
-func Hire(id string, target Target, offers ...Offer) (*Worker, error) {
+const (
+	double          = 2
+	defaultOvertime = 1_000_000
+)
+
+func Hire(ident string, target Target, offers ...Offer) (*Worker, error) {
 	if target == nil {
 		return nil, ErrMissingTarget
 	}
 
 	worker := &Worker{
-		id:     id,
+		ident:  ident,
 		target: target,
 		config: config{
-			overtime:  false,
+			overtime:  defaultOvertime,
 			listeners: make([]Gossiper, 0),
 		},
-		wlb:  make(chan struct{}), // will be ignored when Worker.Do calls
+		wlb:  nil, // will be ignored when Worker.Do calls
 		busy: atomic.Bool{},
 	}
 
 	for _, offer := range offers {
 		offer(worker)
 	}
+
+	worker.wlb = make(chan struct{}, worker.config.overtime)
 
 	return worker, nil
 }
@@ -127,6 +130,7 @@ func (w *Worker) Work(ctx context.Context, rps int) error {
 
 	if rps < 1 {
 		w.busy.Store(false)
+
 		return ErrInvalidRPS.Reason("rps must be positive")
 	}
 
@@ -136,29 +140,21 @@ func (w *Worker) Work(ctx context.Context, rps int) error {
 		return ErrInvalidRPS.Reason("rps too large, resulting tick < 1ns")
 	}
 
-	if !w.config.overtime {
-		w.wlb = make(chan struct{}, rps)
-	}
-
 	wait := sync.WaitGroup{}
-
 	tracker := make([]chan *Gossip, 0)
-	for _, gossiper := range w.config.listeners {
-		tracker = append(tracker, make(chan *Gossip, 2*rps))
 
-		go gossiper.Listen(ctx, w.id, tracker[len(tracker)-1])
+	for _, gossiper := range w.config.listeners {
+		tracker = append(tracker, make(chan *Gossip, double*rps))
+
+		go gossiper.Listen(ctx, w.ident, tracker[len(tracker)-1])
 	}
 
 	defer func() {
 		wait.Wait()
 
-		if !w.config.overtime {
-			close(w.wlb)
-		}
-
 		for id, track := range tracker {
 			close(track)
-			_ = w.config.listeners[id].Close()
+			w.config.listeners[id].Stop()
 		}
 
 		w.busy.Store(false)
@@ -170,56 +166,45 @@ func (w *Worker) Work(ctx context.Context, rps int) error {
 	for {
 		select {
 		case <-ctx.Done():
-			wait.Wait()
-			return nil
+			return ex.Cast(ctx.Err())
 
 		case <-timeless.C:
-			for _, track := range tracker {
-				select {
-				case track <- &Gossip{When: Planned, Result: nil, Error: nil}:
-				default:
-				}
-			}
-
-			if !w.config.overtime {
-				select {
-				case w.wlb <- struct{}{}:
-				default:
-					continue
-				}
-			}
-
-			wait.Add(1)
-			go func() {
-				defer wait.Done()
-				defer func() {
-					if !w.config.overtime {
-						<-w.wlb
+			select {
+			case w.wlb <- struct{}{}:
+			case <-ctx.Done():
+				continue
+			default:
+				for _, track := range tracker {
+					select {
+					case track <- &Gossip{When: Cancelled, Result: nil, Error: nil}:
+					default:
 					}
+				}
+
+				continue // move to the next tick
+			}
+
+			wait.Go(func() {
+				defer func() {
+					<-w.wlb
 				}()
 
 				for _, track := range tracker {
-					select {
-					case track <- &Gossip{When: BeforeTarget, Result: nil, Error: nil}:
-					default:
-					}
+					track <- &Gossip{When: BeforeTarget, Result: nil, Error: nil}
 				}
 
 				res, err := w.target(ctx)
 
 				for _, track := range tracker {
-					select {
-					case track <- &Gossip{When: AfterTarget, Result: res, Error: err}:
-					default:
-					}
+					track <- &Gossip{When: AfterTarget, Result: res, Error: err}
 				}
-			}()
+			})
 		}
 	}
 }
 
 func Work(target Target, rps int, duration time.Duration, offers ...Offer) error {
-	w, err := Hire("judas", target, offers...)
+	worker, err := Hire("judas", target, offers...)
 	if err != nil {
 		return err
 	}
@@ -227,7 +212,7 @@ func Work(target Target, rps int, duration time.Duration, offers ...Offer) error
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
 
-	return w.Work(ctx, rps)
+	return worker.Work(ctx, rps)
 }
 
 func Farm(workers []*Worker, rps int, duration time.Duration) {
@@ -238,29 +223,15 @@ func Farm(workers []*Worker, rps int, duration time.Duration) {
 
 	for _, worker := range workers {
 		wait.Go(func() {
-			_ = worker.Work(ctx, rps)
+			_ = worker.Work(ctx, rps) // we ignore errors from workers
 		})
 	}
 
 	wait.Wait()
-
-	return
 }
 
 func TestMe(_ context.Context) (int, error) {
-	val := rand.Int32() % 100
-
-	switch {
-	case val < 50:
-		//time.Sleep(3 * time.Second)
-		//time.Sleep(time.Second / 2)
-
-		return 1, nil
-	case val < 75:
-		return 2, nil
-	default:
-		return 0, errors.New("test error")
-	}
+	return 0, nil
 }
 
 type IntResult int
@@ -269,18 +240,16 @@ func (r IntResult) String() string {
 	return strconv.Itoa(int(r))
 }
 
-func Main() {
+func Main() error {
+	rps := 20
+	dur := time.Second
+	lim := 100
+
 	target := func(ctx context.Context) (Result, error) {
 		res, err := TestMe(ctx)
 
 		return IntResult(res), err
 	}
 
-	start := time.Now()
-
-	if err := Work(target, 20, 2*time.Second, WithOvertime()); err != nil {
-		return
-	}
-
-	fmt.Println("took", time.Since(start))
+	return Work(target, rps, dur, WithOvertime(lim))
 }
