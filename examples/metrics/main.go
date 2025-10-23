@@ -67,13 +67,10 @@ func main() {
 	collector := new(MetricsCollector)
 
 	// Usage with metrics and overtime (max concurrent requests)
-	worker, err := pusher.Hire("monitor", examples.RandomTime,
+	worker := pusher.Hire("monitor", examples.RandomTime,
 		pusher.WithGossips(collector),
 		pusher.WithOvertime(10),
 	)
-	if err != nil {
-		log.Fatalln(err)
-	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()

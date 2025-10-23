@@ -8,6 +8,8 @@ linters:
   settings:
     gocritic:
       enable-all: true
+      disabled-checks:
+        - unnamedResult
     wrapcheck:
       ignore-package-globs:
         - github.com/therenotomorrow/ex
@@ -29,6 +31,7 @@ linters:
           allow:
             - '$gostd'
             - 'github.com/stretchr/testify'
+            - 'github.com/therenotomorrow/ex'
             - 'github.com/therenotomorrow/pusher'
   exclusions:
     rules:
@@ -38,6 +41,9 @@ linters:
           - mnd
           - revive
           - depguard
+          - ireturn
+      - path: _test\.go
+        linters:
           - ireturn
 
 formatters:

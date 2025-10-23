@@ -14,6 +14,14 @@ type (
 		overtime  int
 	}
 
+	// Config is a public copy of the Worker internals.
+	Config struct {
+		Ident     string
+		Listeners []Gossiper
+		Overtime  int
+		Busy      bool
+	}
+
 	// Offer is a functional option for configuring a Worker.
 	// This pattern allows for flexible and extensible Worker initialization.
 	Offer func(w *Worker)
@@ -31,5 +39,15 @@ func WithGossips(listeners ...Gossiper) Offer {
 func WithOvertime(limit int) Offer {
 	return func(w *Worker) {
 		w.config.overtime = limit
+	}
+}
+
+// Config returns the public copy of Worker internals.
+func (w *Worker) Config() Config {
+	return Config{
+		Busy:      w.busy.Load(),
+		Ident:     w.ident,
+		Listeners: w.config.listeners,
+		Overtime:  w.config.overtime,
 	}
 }

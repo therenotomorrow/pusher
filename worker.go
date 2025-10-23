@@ -48,17 +48,17 @@ type (
 // the provided context is canceled. It generates requests at the specified RPS,
 // respecting the concurrency limit.
 func (w *Worker) Work(ctx context.Context, rps int) error {
-	tick, err := w.isReady(rps)
+	tick, err := w.validate(rps)
 	if err != nil {
 		return err
 	}
 
-	tracks := w.runListeners(ctx, rps)
+	defer w.busy.Store(false)
 
+	tracks := w.runListeners(ctx, rps)
 	defer w.complete(tracks)
 
 	timeless := time.NewTicker(tick)
-
 	defer timeless.Stop()
 
 	for {
@@ -91,43 +91,32 @@ func (w *Worker) Work(ctx context.Context, rps int) error {
 	}
 }
 
-// Unsafe returns internal state of Worker, be careful with usage.
-func (w *Worker) Unsafe() map[string]any {
-	return map[string]any{
-		"listeners": w.config.listeners,
-		"overtime":  w.config.overtime,
-	}
-}
-
 func (w *Worker) String() string {
 	return w.ident
 }
 
-// isReady performs pre-flight checks before starting the main loop.
+// validate performs pre-flight checks before starting the main loop.
 // It ensures the worker is not already busy and validates the RPS value.
-func (w *Worker) isReady(rps int) (time.Duration, error) {
-	if !w.busy.CompareAndSwap(false, true) {
-		return 0, ErrWorkerIsBusy.Reason("try again later")
+func (w *Worker) validate(rps int) (time.Duration, error) {
+	if w.target == nil {
+		return 0, ErrMissingTarget.Reason("not provided")
 	}
 
 	if rps < 1 {
-		w.busy.Store(false)
-
-		return 0, ErrInvalidRPS.Reason("rps must be positive value")
-	}
-
-	if w.config.overtime < 1 {
-		w.busy.Store(false)
-
-		return 0, ErrInvalidOvertime.Reason("overtime must be positive value")
+		return 0, ErrInvalidRPS.Reason("must be positive")
 	}
 
 	tick := time.Second / time.Duration(rps)
-
 	if tick < time.Nanosecond {
-		w.busy.Store(false)
+		return 0, ErrInvalidRPS.Reason("too large, resulting tick < 1ns")
+	}
 
-		return 0, ErrInvalidRPS.Reason("rps too large, resulting tick < 1ns")
+	if w.config.overtime < 0 {
+		return 0, ErrInvalidOvertime.Reason("must be more or equal zero")
+	}
+
+	if !w.busy.CompareAndSwap(false, true) {
+		return 0, ErrWorkerIsBusy.Reason("try again later")
 	}
 
 	return tick, nil

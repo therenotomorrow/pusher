@@ -2,6 +2,7 @@
 package pusher
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"sync"
@@ -13,13 +14,9 @@ import (
 )
 
 // Hire creates and configures a new Worker instance using functional options.
-func Hire(ident string, target Target, offers ...Offer) (*Worker, error) {
-	if target == nil {
-		return nil, ErrMissingTarget
-	}
-
+func Hire(ident string, target Target, offers ...Offer) *Worker {
 	worker := &Worker{
-		ident:  ident,
+		ident:  cmp.Or(ident, "judas"),
 		target: target,
 		config: config{
 			overtime:  defaultOvertime,
@@ -34,18 +31,18 @@ func Hire(ident string, target Target, offers ...Offer) (*Worker, error) {
 		offer(worker)
 	}
 
-	worker.wlb = make(chan struct{}, worker.config.overtime)
+	// we will check it later at work
+	if worker.config.overtime >= 0 {
+		worker.wlb = make(chan struct{}, worker.config.overtime)
+	}
 
-	return worker, nil
+	return worker
 }
 
 // Work is a convenience wrapper that creates and runs a single Worker
 // for a specified duration.
 func Work(target Target, rps int, duration time.Duration, offers ...Offer) error {
-	worker, err := Hire("judas", target, offers...)
-	if err != nil {
-		return err
-	}
+	worker := Hire("judas", target, offers...)
 
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
@@ -76,10 +73,7 @@ func Farm(workers []*Worker, rps int, duration time.Duration) error {
 func Force(target Target, rps int, duration time.Duration, amount int, offers ...Offer) error {
 	workers := make([]*Worker, amount)
 	for ident := range workers {
-		worker, err := Hire(fmt.Sprintf("force #%d", ident), target, offers...)
-		if err != nil {
-			return err
-		}
+		worker := Hire(fmt.Sprintf("force #%d", ident), target, offers...)
 
 		workers[ident] = worker
 	}

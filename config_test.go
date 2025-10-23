@@ -28,7 +28,7 @@ func TestWithGossips(t *testing.T) {
 
 		pusher.WithGossips(gossiper1)(worker)
 
-		got := worker.Unsafe()["listeners"]
+		got := worker.Config().Listeners
 		want := []pusher.Gossiper{gossiper1}
 
 		assert.Equal(t, want, got)
@@ -46,7 +46,7 @@ func TestWithGossips(t *testing.T) {
 
 		pusher.WithGossips(gossiper1, gossiper2, gossiper3)(worker)
 
-		got := worker.Unsafe()["listeners"]
+		got := worker.Config().Listeners
 		want := []pusher.Gossiper{gossiper1, gossiper2, gossiper3}
 
 		assert.Equal(t, want, got)
@@ -59,7 +59,7 @@ func TestWithGossips(t *testing.T) {
 
 		pusher.WithGossips()(worker)
 
-		got := worker.Unsafe()["listeners"]
+		got := worker.Config().Listeners
 
 		assert.Empty(t, got)
 	})
@@ -75,8 +75,31 @@ func TestWithOvertime(t *testing.T) {
 
 	pusher.WithOvertime(limit)(worker)
 
-	got := worker.Unsafe()["overtime"]
+	got := worker.Config().Overtime
 	want := limit
+
+	assert.Equal(t, want, got)
+}
+
+func TestWorkerConfig(t *testing.T) {
+	t.Parallel()
+
+	var (
+		gossipers = []pusher.Gossiper{new(gossiper), new(gossiper)}
+		worker    = pusher.Hire(
+			"memes", noop,
+			pusher.WithOvertime(100),
+			pusher.WithGossips(gossipers...),
+		)
+	)
+
+	got := worker.Config()
+	want := pusher.Config{
+		Ident:     "memes",
+		Listeners: gossipers,
+		Overtime:  100,
+		Busy:      false,
+	}
 
 	assert.Equal(t, want, got)
 }

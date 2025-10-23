@@ -13,11 +13,7 @@ func main() {
 	// Create multiple workers
 	workers := make([]*pusher.Worker, 0)
 	for i, target := range examples.Targets() {
-		worker, err := pusher.Hire(fmt.Sprintf("somebody #%d", i), target)
-		if err != nil {
-			log.Fatalln(err)
-		}
-
+		worker := pusher.Hire(fmt.Sprintf("somebody #%d", i), target)
 		workers = append(workers, worker)
 	}
 

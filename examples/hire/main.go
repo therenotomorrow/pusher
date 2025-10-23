@@ -11,10 +11,7 @@ import (
 
 func main() {
 	// Create a worker
-	worker, err := pusher.Hire("body", examples.Target)
-	if err != nil {
-		log.Fatalln(err)
-	}
+	worker := pusher.Hire("body", examples.Target)
 
 	// Run with 50 RPS for 1 minute
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)

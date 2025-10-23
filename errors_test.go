@@ -11,7 +11,7 @@ import (
 func TestErrInvalidRPS(t *testing.T) {
 	t.Parallel()
 
-	assert.EqualError(t, pusher.ErrInvalidRPS, "invalid rps value")
+	assert.EqualError(t, pusher.ErrInvalidRPS, "invalid rps")
 }
 
 func TestErrMissingTarget(t *testing.T) {
@@ -29,5 +29,5 @@ func TestErrWorkerIsBusy(t *testing.T) {
 func TestErrInvalidOvertime(t *testing.T) {
 	t.Parallel()
 
-	assert.EqualError(t, pusher.ErrInvalidOvertime, "invalid overtime value")
+	assert.EqualError(t, pusher.ErrInvalidOvertime, "invalid overtime")
 }
