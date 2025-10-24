@@ -1,10 +1,10 @@
 package pusher
 
 const (
-	// double is a multiplier for the listener channel's buffer size.
+	// triple is a multiplier for the listener channel's buffer size.
 	// A size of 2*rps provides a sufficient buffer to handle bursts
 	// of BeforeTarget and AfterTarget events without blocking.
-	double          = 2
+	triple          = 2
 	defaultOvertime = 1_000_000
 )
 

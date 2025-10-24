@@ -72,8 +72,6 @@ func (w *Worker) Work(ctx context.Context, rps int) error {
 			// It also checks for context cancellation for an immediate exit.
 			select {
 			case w.wlb <- struct{}{}:
-			case <-ctx.Done():
-				return ex.Cast(ctx.Err())
 			default:
 				w.whisp(tracks, &Gossip{When: Cancelled, Result: nil, Error: nil})
 
@@ -83,9 +81,9 @@ func (w *Worker) Work(ctx context.Context, rps int) error {
 			w.wait.Go(func() {
 				defer func() { <-w.wlb }()
 
-				w.shout(tracks, &Gossip{When: BeforeTarget, Result: nil, Error: nil})
+				w.shout(ctx, tracks, &Gossip{When: BeforeTarget, Result: nil, Error: nil})
 				res, err := w.target(ctx)
-				w.shout(tracks, &Gossip{When: AfterTarget, Result: res, Error: err})
+				w.shout(ctx, tracks, &Gossip{When: AfterTarget, Result: res, Error: err})
 			})
 		}
 	}
@@ -128,7 +126,7 @@ func (w *Worker) runListeners(ctx context.Context, rps int) []chan *Gossip {
 	tracks := make([]chan *Gossip, 0)
 
 	for _, gossiper := range w.config.listeners {
-		tracks = append(tracks, make(chan *Gossip, double*rps))
+		tracks = append(tracks, make(chan *Gossip, triple*rps))
 
 		go gossiper.Listen(ctx, w, tracks[len(tracks)-1])
 	}
@@ -164,8 +162,12 @@ func (w *Worker) whisp(tracks []chan *Gossip, gossip *Gossip) {
 // shout performs a blocking send of an event, ensuring its delivery.
 // It's used for critical events (task results) where data loss is unacceptable.
 // This can create backpressure if a listener is slow.
-func (w *Worker) shout(tracks []chan *Gossip, gossip *Gossip) {
+func (w *Worker) shout(ctx context.Context, tracks []chan *Gossip, gossip *Gossip) {
 	for _, track := range tracks {
-		track <- gossip
+		select {
+		case track <- gossip:
+		case <-ctx.Done():
+			return
+		}
 	}
 }

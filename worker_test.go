@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -17,6 +18,65 @@ import (
 var errDummy = errors.New("dummy")
 
 func noop(context.Context) (pusher.Result, error) { return nil, errDummy }
+
+type observer struct {
+	worker    *pusher.Worker
+	done      chan struct{}
+	cancelled atomic.Int64
+	received  atomic.Int64
+	success   atomic.Int64
+	failure   atomic.Int64
+}
+
+func (o *observer) Listen(_ context.Context, worker *pusher.Worker, gossips <-chan *pusher.Gossip) {
+	o.worker = worker
+	o.done = make(chan struct{})
+
+	defer close(o.done)
+
+	for gossip := range gossips {
+		if gossip.Cancelled() {
+			o.cancelled.Add(1)
+
+			continue
+		}
+
+		if gossip.BeforeTarget() {
+			o.received.Add(1)
+
+			continue
+		}
+
+		if gossip.Error != nil {
+			o.failure.Add(1)
+		} else {
+			o.success.Add(1)
+		}
+	}
+}
+
+func (o *observer) Stop() {
+	<-o.done
+}
+
+type sentry struct {
+	worker *pusher.Worker
+	done   chan struct{}
+}
+
+func (s *sentry) Listen(_ context.Context, worker *pusher.Worker, gossips <-chan *pusher.Gossip) {
+	s.worker = worker
+	s.done = make(chan struct{})
+
+	defer close(s.done)
+
+	<-gossips
+	<-gossips
+}
+
+func (s *sentry) Stop() {
+	<-s.done
+}
 
 func safe(target pusher.Target, offers ...pusher.Offer) (*pusher.Worker, func(ctx context.Context, rps int) error) {
 	worker := pusher.Hire("", target, offers...)
@@ -131,4 +191,130 @@ func TestWorkerValidateBusy(t *testing.T) {
 
 	assert.Len(t, errs, size-1)
 	assert.False(t, worker.Config().Busy)
+}
+
+func TestWorkerString(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		ident string
+		want  string
+	}{
+		{
+			name:  "no name",
+			ident: "",
+			want:  "judas",
+		},
+		{
+			name:  "somebody",
+			ident: "somebody",
+			want:  "somebody",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			worker := pusher.Hire(test.ident, nil)
+			got := worker.String()
+
+			assert.Equal(t, test.want, got)
+		})
+	}
+}
+
+func TestWorkerWorkFast(t *testing.T) {
+	t.Parallel()
+
+	var (
+		num      = 0
+		rps      = 100
+		limit    = 5
+		duration = 5 * time.Second
+		wait     = sync.WaitGroup{}
+		mutex    = sync.Mutex{}
+		obs      = new(observer)
+	)
+
+	worker, call := safe(func(_ context.Context) (pusher.Result, error) {
+		mutex.Lock()
+		defer mutex.Unlock()
+
+		num++
+
+		switch {
+		case num%3 == 0:
+			return nil, errDummy
+		case num%5 == 0:
+			time.Sleep(time.Second)
+
+			return result("busy"), nil
+		default:
+			return result("done"), nil
+		}
+	}, pusher.WithGossips(obs), pusher.WithOvertime(limit))
+
+	ctx, cancel := context.WithTimeout(t.Context(), duration)
+	defer cancel()
+
+	wait.Go(func() {
+		err := call(ctx, rps)
+
+		require.NoError(t, err)
+	})
+
+	// wait for start goroutine and check business
+	time.Sleep(duration / 5)
+
+	assert.True(t, worker.Config().Busy)
+	wait.Wait()
+	assert.False(t, worker.Config().Busy)
+
+	var (
+		cancelled = int(obs.cancelled.Load())
+		received  = int(obs.received.Load())
+		success   = int(obs.success.Load())
+		failure   = int(obs.failure.Load())
+	)
+
+	assert.Greater(t, cancelled, 400)
+	assert.Greater(t, received, 30)
+	assert.Greater(t, success, 20)
+	assert.Less(t, failure, 20)
+	assert.Greater(t, received, success+failure)
+}
+
+func TestWorkerWorkSlow(t *testing.T) {
+	t.Parallel()
+
+	var (
+		num      = 0
+		rps      = 1
+		limit    = 1
+		duration = 5 * time.Second
+		mutex    = sync.Mutex{}
+		sent     = new(sentry)
+	)
+
+	_, call := safe(func(_ context.Context) (pusher.Result, error) {
+		mutex.Lock()
+		defer mutex.Unlock()
+
+		num++
+
+		if num%2 == 0 {
+			time.Sleep(time.Second)
+		}
+
+		return result("done"), nil
+	}, pusher.WithGossips(sent), pusher.WithOvertime(limit))
+
+	ctx, cancel := context.WithTimeout(t.Context(), duration)
+	defer cancel()
+
+	err := call(ctx, rps)
+
+	require.NoError(t, err)
 }
