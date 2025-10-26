@@ -8,11 +8,7 @@ import (
 	"github.com/therenotomorrow/pusher"
 )
 
-type result string
-
-func (m result) String() string { return string(m) }
-
-func TestGossipWhen(t *testing.T) {
+func TestGossipStates(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -20,38 +16,19 @@ func TestGossipWhen(t *testing.T) {
 		when pusher.When
 		want []bool
 	}{
-		{
-			name: "Cancelled",
-			when: pusher.Cancelled,
-			want: []bool{true, false, false},
-		},
-		{
-			name: "BeforeTarget",
-			when: pusher.BeforeTarget,
-			want: []bool{false, true, false},
-		},
-		{
-			name: "AfterTarget",
-			when: pusher.AfterTarget,
-			want: []bool{false, false, true},
-		},
-		{
-			name: "Unsupported",
-			when: pusher.When("unsupported"),
-			want: []bool{false, false, false},
-		},
+		{name: "canceled", when: pusher.Canceled, want: []bool{true, false, false}},
+		{name: "before target", when: pusher.BeforeTarget, want: []bool{false, true, false}},
+		{name: "after target", when: pusher.AfterTarget, want: []bool{false, false, true}},
+		{name: "unsupported", when: pusher.When("unsupported"), want: []bool{false, false, false}},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			var (
-				result = new(result)
-				gossip = pusher.Gossip{When: test.when, Result: result, Error: nil}
-			)
+			gossip := pusher.Gossip{When: test.when, Result: nil, Error: nil}
 
-			got := []bool{gossip.Cancelled(), gossip.BeforeTarget(), gossip.AfterTarget()}
+			got := []bool{gossip.Canceled(), gossip.BeforeTarget(), gossip.AfterTarget()}
 
 			assert.Equal(t, test.want, got)
 		})
@@ -66,16 +43,8 @@ func TestGossipString(t *testing.T) {
 		gossip *pusher.Gossip
 		want   string
 	}{
-		{
-			name:   "nil",
-			gossip: nil,
-			want:   "<nil>",
-		},
-		{
-			name:   "empty",
-			gossip: &pusher.Gossip{Result: nil, Error: nil, When: pusher.BeforeTarget},
-			want:   "<empty>",
-		},
+		{name: "nil", gossip: nil, want: "<nil>"},
+		{name: "empty", gossip: &pusher.Gossip{Result: nil, Error: nil, When: pusher.BeforeTarget}, want: "<empty>"},
 		{
 			name:   "smoke",
 			gossip: &pusher.Gossip{Result: result("useful"), Error: nil, When: pusher.AfterTarget},

@@ -12,6 +12,13 @@ import (
 	"github.com/therenotomorrow/pusher"
 )
 
+const (
+	answer  = 42
+	quarter = 25
+	half    = 50
+	full    = 100
+)
+
 type Int int
 
 func (r Int) String() string {
@@ -19,7 +26,7 @@ func (r Int) String() string {
 }
 
 func Target(_ context.Context) (pusher.Result, error) {
-	return Int(42), nil
+	return Int(answer), nil
 }
 
 type Str string
@@ -51,19 +58,19 @@ func (r Struct) String() string {
 	return fmt.Sprintf("Somebody %q at age %d", r.Name, r.Age)
 }
 
-var ErrOops = errors.New("oops")
+var errOops = errors.New("oops")
 
 func RandomTime(_ context.Context) (pusher.Result, error) {
-	rnd, _ := rand.Int(rand.Reader, big.NewInt(100))
+	rnd, _ := rand.Int(rand.Reader, big.NewInt(full))
 	flip := rnd.Uint64()
 
-	if flip < 25 {
+	if flip < quarter {
 		time.Sleep(time.Second)
 	}
 
-	if flip < 50 {
-		return nil, ErrOops
+	if flip < half {
+		return nil, errOops
 	}
 
-	return Struct{Name: "lumen", Age: 42}, nil
+	return Struct{Name: "lumen", Age: answer}, nil
 }

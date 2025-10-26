@@ -9,6 +9,9 @@ import (
 )
 
 func main() {
+	rps := 50
+	duration := time.Minute
+
 	// Run with 50 RPS for one minute
-	log.Println(pusher.Work(examples.Target, 50, time.Minute))
+	log.Println(pusher.Work(examples.Target, rps, duration))
 }

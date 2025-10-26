@@ -17,6 +17,9 @@ func main() {
 		workers = append(workers, worker)
 	}
 
+	rps := 100
+	duration := time.Minute
+
 	// Run all workers in parallel
-	log.Println(pusher.Farm(workers, 100, 2*time.Minute))
+	log.Println(pusher.Farm(workers, rps, duration))
 }

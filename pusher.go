@@ -1,4 +1,3 @@
-// Package pusher provides tools for load testing by repeatedly calling a given target function.
 package pusher
 
 import (
@@ -16,7 +15,7 @@ import (
 // Hire creates and configures a new Worker instance using functional options.
 func Hire(ident string, target Target, offers ...Offer) *Worker {
 	worker := &Worker{
-		ident:  cmp.Or(ident, "judas"),
+		ident:  cmp.Or(ident, defaultIdent),
 		target: target,
 		config: config{
 			overtime:  defaultOvertime,

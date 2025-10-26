@@ -41,6 +41,24 @@ align:
     @if test ! -e {{ FIELDALIGNMENT }}; then just install-fieldaligment; fi
     {{ FIELDALIGNMENT }} --fix ./...
 
+# ---- godoc
+
+GODOC_VERSION := 'v0.36.0'
+GODOC_PATH := BIN / 'godoc'
+GODOC := GODOC_PATH + '@' + GODOC_VERSION
+
+[private]
+install-godoc:
+    GOBIN={{ BIN }} go install golang.org/x/tools/cmd/godoc@{{ GODOC_VERSION }}
+    mv {{ GODOC_PATH }} {{ GODOC }}
+
+[doc('Run documentation server using `godoc`')]
+[group('docs')]
+docs port='6060':
+    @if test ! -e {{ GODOC }}; then just install-godoc; fi
+    @echo http://127.0.0.1:{{ port }}/pkg/github.com/therenotomorrow/ex/
+    {{ GODOC }} -http=:{{ port }}
+
 # ---- testing
 
 [private]

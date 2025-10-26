@@ -28,7 +28,7 @@ func (m *MetricsCollector) Listen(_ context.Context, worker *pusher.Worker, goss
 	defer close(m.done)
 
 	for gossip := range gossips {
-		if gossip.Cancelled() {
+		if gossip.Canceled() {
 			m.canceled.Add(1)
 
 			continue
@@ -64,18 +64,22 @@ func (m *MetricsCollector) Stats() string {
 }
 
 func main() {
+	limit := 10
 	collector := new(MetricsCollector)
 
 	// Usage with metrics and overtime (max concurrent requests)
 	worker := pusher.Hire("monitor", examples.RandomTime,
 		pusher.WithGossips(collector),
-		pusher.WithOvertime(10),
+		pusher.WithOvertime(limit),
 	)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	rps := 50
+	duration := time.Minute
+
+	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
 
-	log.Println(worker.Work(ctx, 50))
+	log.Println(worker.Work(ctx, rps))
 
 	collector.Stop()
 

@@ -13,6 +13,10 @@ linters:
     wrapcheck:
       ignore-package-globs:
         - github.com/therenotomorrow/ex
+    ireturn:
+      allow:
+        - error
+        - pusher\.Result$
     depguard:
       rules:
         main:
@@ -24,6 +28,7 @@ linters:
             - '$gostd'
             - 'golang.org/x/sync/errgroup'
             - 'github.com/therenotomorrow/ex'
+            - 'github.com/therenotomorrow/pusher'
         tests:
           list-mode: strict
           files:
@@ -38,13 +43,7 @@ linters:
       # simple rules for examples
       - path: examples
         linters:
-          - mnd
           - revive
-          - depguard
-          - ireturn
-      - path: _test\.go
-        linters:
-          - ireturn
 
 formatters:
   enable:

@@ -24,13 +24,13 @@
   </a>
 </div>
 
-**pusher** is a Go library for simple and quick load testing, see more in [examples](./examples) folder.
+**pusher** is a Go library for simple and quick load testing, see more in the [examples](./examples) folder.
 
-The library is built around the **Worker** concept — the entity who works! Key components:
+The library is built around the **Worker** concept — the entity who works! Key elements:
 
 - **Worker** — the main character
 - **Target** — what we want to test
-- **Gossiper** — interface for listening something interesting
+- **Gossiper** — interface for listening to something interesting
 - **Gossip** — task lifecycle events
 - **Offer** — options for hire the **Worker**
 
@@ -127,4 +127,4 @@ just test cover
 
 ## License
 
-MIT License. See [LICENSE](./LICENSE) file for details.
+MIT License. See the [LICENSE](./LICENSE) file for details.

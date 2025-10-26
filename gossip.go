@@ -1,5 +1,7 @@
 package pusher
 
+import "context"
+
 const (
 	// BeforeTarget is the moment just before the Target function is called.
 	BeforeTarget When = "before-target"
@@ -7,9 +9,9 @@ const (
 	// AfterTarget is the moment just after the Target function returns.
 	AfterTarget When = "after-target"
 
-	// Cancelled indicates that a scheduled task was skipped because the concurrency
+	// Canceled indicates that a scheduled task was skipped because the concurrency
 	// limit was reached.
-	Cancelled When = "cancelled"
+	Canceled When = "canceled"
 )
 
 type (
@@ -23,11 +25,21 @@ type (
 		Error  error
 		When   When
 	}
+
+	// Gossiper defines the interface for listeners that process Gossip events.
+	// This allows plugging in various metric collectors, loggers, or reporters.
+	Gossiper interface {
+		// Listen runs in its own goroutine and processes events from the gossip channel.
+		Listen(ctx context.Context, worker *Worker, gossips <-chan *Gossip)
+
+		// Stop is called to gracefully shut down the listener and flush any buffered data.
+		Stop()
+	}
 )
 
-// Cancelled returns true if the Gossip event represents a cancelled task.
-func (g *Gossip) Cancelled() bool {
-	return g.When == Cancelled
+// Canceled returns true if the Gossip event represents a canceled task.
+func (g *Gossip) Canceled() bool {
+	return g.When == Canceled
 }
 
 // BeforeTarget returns true if the Gossip event occurred before the target execution.

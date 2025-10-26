@@ -14,6 +14,6 @@ const (
 	// ErrWorkerIsBusy is returned when Work is called on a Worker that is already running.
 	ErrWorkerIsBusy = ex.Error("worker is busy")
 
-	// ErrInvalidOvertime is returned when Work is tried to run with negative WithOvertime option.
+	// ErrInvalidOvertime is returned when Work is tried to run with a negative WithOvertime option.
 	ErrInvalidOvertime = ex.Error("invalid overtime")
 )

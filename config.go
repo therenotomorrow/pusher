@@ -1,10 +1,11 @@
 package pusher
 
 const (
-	// triple is a multiplier for the listener channel's buffer size.
+	// double is a multiplier for the listener channel's buffer size.
 	// A size of 2*rps provides a sufficient buffer to handle bursts
 	// of BeforeTarget and AfterTarget events without blocking.
-	triple          = 2
+	double          = 2
+	defaultIdent    = "judas"
 	defaultOvertime = 1_000_000
 )
 
@@ -16,10 +17,11 @@ type (
 
 	// Config is a public copy of the Worker internals.
 	Config struct {
-		Ident     string
-		Listeners []Gossiper
-		Overtime  int
-		Busy      bool
+		Ident       string
+		Listeners   []Gossiper
+		Overtime    int
+		WLBCapacity int
+		Busy        bool
 	}
 
 	// Offer is a functional option for configuring a Worker.
@@ -45,9 +47,10 @@ func WithOvertime(limit int) Offer {
 // Config returns the public copy of Worker internals.
 func (w *Worker) Config() Config {
 	return Config{
-		Busy:      w.busy.Load(),
-		Ident:     w.ident,
-		Listeners: w.config.listeners,
-		Overtime:  w.config.overtime,
+		Busy:        w.busy.Load(),
+		Ident:       w.ident,
+		Listeners:   w.config.listeners,
+		Overtime:    w.config.overtime,
+		WLBCapacity: cap(w.wlb),
 	}
 }
