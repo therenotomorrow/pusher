@@ -5,15 +5,46 @@ linters:
   disable:
     # deprecated: by golangci-lint
     - wsl
-    # temp: skip for now
-    - revive
-    - depguard
   settings:
     gocritic:
       enable-all: true
-    varnamelen:
-      ignore-names:
-        - id
+      disabled-checks:
+        - unnamedResult
+    wrapcheck:
+      ignore-package-globs:
+        - github.com/therenotomorrow/ex
+    depguard:
+      rules:
+        main:
+          list-mode: strict
+          files:
+            - '$all'
+            - '!$test'
+          allow:
+            - '$gostd'
+            - 'golang.org/x/sync/errgroup'
+            - 'github.com/therenotomorrow/ex'
+        tests:
+          list-mode: strict
+          files:
+            - '$test'
+          allow:
+            - '$gostd'
+            - 'github.com/stretchr/testify'
+            - 'github.com/therenotomorrow/ex'
+            - 'github.com/therenotomorrow/pusher'
+  exclusions:
+    rules:
+      # simple rules for examples
+      - path: examples
+        linters:
+          - mnd
+          - revive
+          - depguard
+          - ireturn
+      - path: _test\.go
+        linters:
+          - ireturn
 
 formatters:
   enable:
