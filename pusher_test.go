@@ -97,7 +97,7 @@ func TestWork(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := pusher.Work(noop(), test.args.rps, time.Second)
+			err := pusher.Work(test.args.rps, time.Second, noop())
 
 			require.ErrorIs(t, err, test.want.err)
 		})
@@ -154,7 +154,7 @@ func TestFarm(t *testing.T) {
 			)
 
 			workers = append(workers, test.args.worker)
-			err := pusher.Farm(workers, rps, duration)
+			err := pusher.Farm(rps, duration, workers)
 
 			require.ErrorIs(t, err, test.want.err)
 
@@ -203,14 +203,14 @@ func TestForce(t *testing.T) {
 				obs3     = newObserver()
 			)
 
-			err := pusher.Force(
-				noop(),
+			run := pusher.Force(
 				test.args.rps,
 				duration,
-				amount,
+				noop(),
 				pusher.WithGossips(obs1, obs2, obs3, obs),
 				pusher.WithOvertime(limit),
 			)
+			err := run(amount)
 
 			require.ErrorIs(t, err, test.want.err)
 

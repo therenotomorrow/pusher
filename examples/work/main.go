@@ -13,5 +13,5 @@ func main() {
 	duration := time.Minute
 
 	// Run with 50 RPS for one minute
-	log.Println(pusher.Work(examples.Target, rps, duration))
+	log.Println(pusher.Work(rps, duration, examples.Target))
 }

@@ -13,6 +13,9 @@ func main() {
 	duration := time.Minute
 	amount := 5
 
+	// Create a runner with the set pre-requests
+	runner := pusher.Force(rps, duration, examples.Target)
+
 	// Create 10 workers with the same configuration
-	log.Println(pusher.Force(examples.Target, rps, duration, amount))
+	log.Println(runner(amount))
 }

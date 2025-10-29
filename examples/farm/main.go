@@ -21,5 +21,5 @@ func main() {
 	duration := time.Minute
 
 	// Run all workers in parallel
-	log.Println(pusher.Farm(workers, rps, duration))
+	log.Println(pusher.Farm(rps, duration, workers))
 }

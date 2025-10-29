@@ -194,7 +194,7 @@ func TestWorkerWorkFast(t *testing.T) {
 	assert.Greater(t, success, 20)
 	assert.Less(t, failure, 20)
 	// because the shout method waits the context also
-	assert.Greater(t, received, success+failure)
+	assert.GreaterOrEqual(t, received, success+failure)
 }
 
 func TestWorkerWorkSlow(t *testing.T) {

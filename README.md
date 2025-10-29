@@ -41,12 +41,84 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"log"
 	"time"
 
 	"github.com/therenotomorrow/pusher"
 )
+
+func main() {
+	target := func(_ context.Context) (pusher.Result, error) {
+		return time.Now(), nil // time.Time support pusher.Result interface
+	}
+
+	// run target with 50 RPS for 1 minute
+	_ = pusher.Work(50, time.Minute, target)
+}
+```
+
+## Slow Start
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/therenotomorrow/pusher"
+)
+
+func main() {
+	// Your function to test
+	target := func(ctx context.Context) (pusher.Result, error) {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
+		now := time.Now().UTC()
+		if now.Second()%2 == 0 {
+			time.Sleep(100 * time.Millisecond)
+		}
+
+		return Result(now.String()), nil
+	}
+
+	// Some of your gossips listeners
+	observers := make([]*Observer, 0)
+
+	gossipers := make([]pusher.Gossiper, 0)
+	for _, when := range []pusher.When{pusher.Canceled, pusher.BeforeTarget, pusher.AfterTarget} {
+		observer := &Observer{done: make(chan struct{}), when: when, count: 0}
+
+		observers = append(observers, observer)
+		gossipers = append(gossipers, observer)
+	}
+
+	// run target with 100 RPS for 1 minute with max 10 requests concurrent
+	// and add 3 listeners for collect statistics
+	err := pusher.Work(
+		100,                              // rps
+		time.Minute,                      // duration
+		target,                           // target
+		pusher.WithOvertime(10),          // concurrent limit
+		pusher.WithGossips(gossipers...), // our gossipers
+	)
+
+	// check what was done and collect
+	fmt.Println("We're done with error:", err)
+	fmt.Println("Canceled:", observers[0].count)
+	fmt.Println("Received:", observers[1].count)
+	fmt.Println("Processed:", observers[2].count)
+
+	// Output:
+	// We're done with error: context deadline exceeded
+	// Canceled: 256
+	// Received: 5744
+	// Processed: 5744
+}
 
 type Result string
 
@@ -54,20 +126,24 @@ func (r Result) String() string {
 	return string(r)
 }
 
-func main() {
-	// Your function to test
-	target := func(ctx context.Context) (pusher.Result, error) {
-		return Result(fmt.Sprintf("result at %v", time.Now())), nil
+type Observer struct {
+	done  chan struct{}
+	when  pusher.When
+	count int
+}
+
+func (o *Observer) Listen(_ context.Context, _ *pusher.Worker, gossips <-chan *pusher.Gossip) {
+	defer close(o.done)
+
+	for gossip := range gossips {
+		if gossip.When == o.when {
+			o.count++
+		}
 	}
+}
 
-	// Create a worker
-	worker := pusher.Hire("body", target, pusher.WithOvertime(10))
-
-	// Run with 50 RPS for 1 minute
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-
-	log.Println(worker.Work(ctx, 50))
+func (o *Observer) Stop() {
+	<-o.done
 }
 ```
 

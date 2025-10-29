@@ -40,8 +40,8 @@ func Hire(ident string, target Target, offers ...Offer) *Worker {
 
 // Work is a convenience wrapper that creates and runs a single Worker
 // for a specified duration.
-func Work(target Target, rps int, duration time.Duration, offers ...Offer) error {
-	worker := Hire("judas", target, offers...)
+func Work(rps int, duration time.Duration, target Target, offers ...Offer) error {
+	worker := Hire(defaultIdent, target, offers...)
 
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
@@ -52,7 +52,7 @@ func Work(target Target, rps int, duration time.Duration, offers ...Offer) error
 // Farm runs a set of pre-configured workers in parallel.
 // It uses an errgroup to manage their lifecycle, ensuring that if one worker
 // fails, the context is canceled for all.
-func Farm(workers []*Worker, rps int, duration time.Duration) error {
+func Farm(rps int, duration time.Duration, workers []*Worker) error {
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
 
@@ -69,13 +69,17 @@ func Farm(workers []*Worker, rps int, duration time.Duration) error {
 
 // Force is a high-level wrapper that creates a specified number of workers
 // with the same configuration and runs them as a Farm.
-func Force(target Target, rps int, duration time.Duration, amount int, offers ...Offer) error {
-	workers := make([]*Worker, amount)
-	for ident := range workers {
-		worker := Hire(fmt.Sprintf("force #%d", ident), target, offers...)
+// Be careful - overtime will be populated by all workers at once.
+// Text me if you need another behaviour.
+func Force(rps int, duration time.Duration, target Target, offers ...Offer) func(amount int) error {
+	return func(amount int) error {
+		workers := make([]*Worker, amount)
+		for ident := range workers {
+			worker := Hire(fmt.Sprintf("force #%d", ident), target, offers...)
 
-		workers[ident] = worker
+			workers[ident] = worker
+		}
+
+		return Farm(rps, duration, workers)
 	}
-
-	return Farm(workers, rps, duration)
 }
