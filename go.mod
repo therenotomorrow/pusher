@@ -4,7 +4,7 @@ go 1.25.2
 
 require (
 	github.com/stretchr/testify v1.11.1
-	github.com/therenotomorrow/ex v1.0.6
+	github.com/therenotomorrow/ex v1.0.7
 	golang.org/x/sync v0.17.0
 )
 
