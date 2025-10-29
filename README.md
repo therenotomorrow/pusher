@@ -5,7 +5,7 @@
     <img src="https://img.shields.io/github/v/release/therenotomorrow/pusher?color=FBC02D" alt="GitHub releases">
   </a>
   <a href="https://go.dev/doc/go1.25" target="_blank">
-    <img src="https://img.shields.io/badge/Go-%3E%3D%201.25-blue.svg" alt="Go 1.21">
+    <img src="https://img.shields.io/badge/Go-%3E%3D%201.25-blue.svg" alt="Go 1.25">
   </a>
   <a href="https://pkg.go.dev/github.com/therenotomorrow/pusher" target="_blank">
     <img src="https://godoc.org/github.com/therenotomorrow/pusher?status.svg" alt="Go reference">
