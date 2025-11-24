@@ -64,7 +64,7 @@ func Farm(rps int, duration time.Duration, workers []*Worker) error {
 		})
 	}
 
-	return ex.Cast(group.Wait())
+	return ex.Conv(group.Wait())
 }
 
 // Force is a high-level wrapper that creates a specified number of workers

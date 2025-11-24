@@ -52,7 +52,7 @@ func (w *Worker) Work(ctx context.Context, rps int) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return ex.Cast(ctx.Err())
+			return ex.Conv(ctx.Err())
 
 		case <-timeless.C:
 			// This inner select attempts to acquire a semaphore slot.

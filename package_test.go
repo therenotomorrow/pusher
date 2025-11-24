@@ -98,7 +98,7 @@ func runner(target pusher.Target, offers ...pusher.Offer) (*pusher.Worker, func(
 			return nil
 		}
 
-		return ex.Cast(err)
+		return ex.Conv(err)
 	}
 
 	return worker, run
